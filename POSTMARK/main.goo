@@ -1,0 +1,1192 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+)
+
+// Template represents a template structure for Postmark
+type Template struct {
+	TemplateID int64  `json:"templateID,omitempty"`
+	Name       string `json:"name"`
+	Subject    string `json:"subject"`
+	HtmlBody   string `json:"htmlBody"`
+	TextBody   string `json:"textBody"`
+	Alias      string `json:"alias,omitempty"`
+	Active     bool   `json:"active,omitempty"`
+}
+
+// TemplatesResponse represents the response from Postmark API for listing templates
+type TemplatesResponse struct {
+	Templates  []Template `json:"templates"`
+	TotalCount int        `json:"totalCount"`
+}
+
+// PostmarkResponse represents the response from Postmark API for create/update actions
+type PostmarkResponse struct {
+	TemplateID int64  `json:"templateID"`
+	ErrorCode  int    `json:"errorCode"`
+	Message    string `json:"message"`
+}
+
+// Email represents an email to be sent using Postmark
+type Email struct {
+	From          string            `json:"From"`
+	To            string            `json:"To"`
+	TemplateID    int64             `json:"TemplateId"`
+	TemplateModel map[string]string `json:"TemplateModel"`
+}
+
+// BatchEmailRequest represents a batch email request
+type BatchEmailRequest struct {
+	Messages []Email `json:"Messages"`
+}
+
+// BouncesResponse represents the response from Postmark API for listing bounces
+type BouncesResponse struct {
+	Bounces    []Bounce `json:"Bounces"`
+	TotalCount int      `json:"TotalCount"`
+}
+
+// Bounce represents a single bounce
+type Bounce struct {
+	ID          int64  `json:"ID"`
+	Type        string `json:"Type"`
+	Description string `json:"Description"`
+	Details     string `json:"Details"`
+	Email       string `json:"Email"`
+	BouncedAt   string `json:"BouncedAt"`
+	CanActivate bool   `json:"CanActivate"`
+	Subject     string `json:"Subject"`
+	MessageID   string `json:"MessageID"`
+}
+
+// CreateTemplate creates a new template in Postmark
+func CreateTemplate(apiToken string, template Template) (int64, error) {
+	url := "https://api.postmarkapp.com/templates"
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return 0, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var postmarkResponse PostmarkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&postmarkResponse); err != nil {
+		return 0, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if postmarkResponse.ErrorCode != 0 {
+		return 0, fmt.Errorf("failed to create template: %s", postmarkResponse.Message)
+	}
+
+	return postmarkResponse.TemplateID, nil
+}
+
+// GetTemplate retrieves a template by its ID
+func GetTemplate(apiToken string, templateID int64) (*Template, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", templateID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var template Template
+	if err := json.NewDecoder(resp.Body).Decode(&template); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &template, nil
+}
+
+// UpdateTemplate updates an existing template in Postmark
+func UpdateTemplate(apiToken string, template Template) error {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", template.TemplateID)
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var postmarkResponse PostmarkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&postmarkResponse); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if postmarkResponse.ErrorCode != 0 {
+		return fmt.Errorf("failed to update template: %s", postmarkResponse.Message)
+	}
+
+	return nil
+}
+
+// DeleteTemplate deletes a template in Postmark
+func DeleteTemplate(apiToken string, templateID int64) error {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", templateID)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// GetTemplates retrieves a list of all templates in Postmark
+func GetTemplates(apiToken string, offset, count int) ([]Template, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates?offset=%d&count=%d", offset, count)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var templatesResponse TemplatesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&templatesResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return templatesResponse.Templates, nil
+}
+
+// ValidateTemplate validates a template in Postmark
+func ValidateTemplate(apiToken string, template Template) error {
+	url := "https://api.postmarkapp.com/templates/validate"
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// SendBatchEmails sends a batch of emails using a template
+func SendBatchEmails(apiToken string, emails []Email) error {
+	url := "https://api.postmarkapp.com/email/batchWithTemplates"
+	batchRequest := BatchEmailRequest{Messages: emails}
+	jsonData, err := json.Marshal(batchRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal batch request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// ListBounces retrieves a list of all bounces
+func ListBounces(apiToken string, offset, count int) ([]Bounce, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/bounces?offset=%d&count=%d", offset, count)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var bouncesResponse BouncesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&bouncesResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return bouncesResponse.Bounces, nil
+}
+
+func main() {
+	apiToken := "3cfe2f4a-8e58-4055-8c56-b4f690bbf9c1"
+
+	// Example of creating a template
+	template := Template{
+		Name:    "OTP Verification",
+		Subject: "OTP Verification email",
+		HtmlBody: `<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>OTP Email</title>
+		</head>
+		<body>
+			<h1>One Time Password</h1>
+			<p>Please use the following OTP to verify your identity:</p>
+			<p><strong>{{.OTP}}</strong></p>
+			<p>If you did not request this OTP, please ignore this email.</p>
+			<p>Thanks,<br>Your Company</p>
+		</body>
+		</html>
+		`,
+		TextBody: "Click the following link to reset your password: {{reset_link}}",
+	}
+
+	templateID, err := CreateTemplate(apiToken, template)
+	if err != nil {
+		log.Fatalf("Error creating template: %v\n", err)
+	}
+	fmt.Printf("Template created with ID: %d\n", templateID)
+
+	// Example of getting a template
+	// retrievedTemplate, err := GetTemplate(apiToken, templateID)
+	// if err != nil {
+	// 	log.Fatalf("Error getting template: %v\n", err)
+	// }
+	// fmt.Printf("Retrieved Template: %+v\n", retrievedTemplate)
+
+	// Example of updating a template
+	// retrievedTemplate.Subject = "Updated Subject"
+	// err = UpdateTemplate(apiToken, *retrievedTemplate)
+	// if err != nil {
+	// 	log.Fatalf("Error updating template: %v\n", err)
+	// }
+	// fmt.Println("Template updated successfully")
+
+	// Example of listing templates
+	// offset := 0
+	// count := 10
+	// templates, err := GetTemplates(apiToken, offset, count)
+	// if err != nil {
+	// 	log.Fatalf("Error listing templates: %v\n", err)
+	// }
+	// fmt.Printf("Total Templates: %d\n", len(templates))
+	// for _, t := range templates {
+	// 	fmt.Printf("ID: %d, Name: %s, Active: %t, Subject: %s\n", t.TemplateID, t.Name, t.Active, t.Subject)
+	// }
+
+	// Deleting a template
+	// err = DeleteTemplate(apiToken, 36188998)
+	// if err != nil {
+	// 	log.Fatalf("Error deleting template: %v\n", err)
+	// }
+	// fmt.Println("Template deleted successfully")
+
+	// Validating a template
+	// err = ValidateTemplate(apiToken, template)
+	// if err != nil {
+	// 	log.Fatalf("Error validating template: %v\n", err)
+	// }
+	// fmt.Println("Template validated successfully")
+
+	// Sending batch emails using a template
+	emails := []Email{
+		{
+			From:          "no-reply@staging.todaypay.tech",
+			To:            "raghunath.tiwari+2@todaypay.me",
+			TemplateID:    36189641,
+			TemplateModel: map[string]string{"reset_link": "https://example.com/reset1"},
+		},
+		{
+			From:          "no-reply@staging.todaypay.tech",
+			To:            "raghunath.tiwari+1@todaypay.me",
+			TemplateID:    36189641,
+			TemplateModel: map[string]string{"reset_link": "https://example.com/reset2"},
+		},
+	}
+	err = SendBatchEmails(apiToken, emails)
+	if err != nil {
+		log.Fatalf("Error sending batch emails: %v\n", err)
+	}
+	fmt.Println("Batch emails sent successfully")
+
+	// Example of listing bounces
+	// bounces, err := ListBounces(apiToken, offset, count)
+	// if err != nil {
+	// 	log.Fatalf("Error listing bounces: %v\n", err)
+	// }
+	// fmt.Printf("Total Bounces: %d\n", len(bounces))
+	// for _, b := range bounces {
+	// 	fmt.Printf("ID: %d, Type: %s, Description: %s, Email: %s, BouncedAt: %s\n",
+	// 		b.ID, b.Type, b.Description, b.Email, b.BouncedAt)
+	// }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+)
+
+type Client struct {
+	baseURL    string
+	apiToken   string
+	httpClient *http.Client
+}
+
+type PostmarkTemplate struct {
+	Name     string `json:"Name"`
+	Subject  string `json:"Subject"`
+	HtmlBody string `json:"HtmlBody"`
+	TextBody string `json:"TextBody"`
+	Active   bool   `json:"active,omitempty"`
+}
+
+type PostmarkResponse struct {
+	ErrorCode  int    `json:"ErrorCode"`
+	Message    string `json:"Message"`
+	TemplateID int64  `json:"TemplateID"`
+}
+
+type PostmarkTemplateListResponse struct {
+	Templates []PostmarkTemplateDetails `json:"Templates"`
+}
+
+type PostmarkTemplateDetails struct {
+	TemplateID int64  `json:"TemplateId"`
+	Name       string `json:"Name"`
+	Subject    string `json:"Subject"`
+	Active     bool   `json:"Active"`
+}
+
+type EmailRequest struct {
+	From     string `json:"From"`
+	To       string `json:"To"`
+	Subject  string `json:"Subject"`
+	HtmlBody string `json:"HtmlBody,omitempty"`
+	TextBody string `json:"TextBody,omitempty"`
+}
+
+type EmailResponse struct {
+	MessageID string `json:"MessageID"`
+	To        string `json:"To"`
+}
+
+func NewClient(apiToken string) *Client {
+	return &Client{
+		baseURL:    "https://api.postmarkapp.com",
+		apiToken:   apiToken,
+		httpClient: &http.Client{},
+	}
+}
+
+func (c *Client) doRequest(method, url string, body interface{}, result interface{}) error {
+	var reqBody io.Reader
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		reqBody = bytes.NewBuffer(jsonData)
+	}
+
+	req, err := http.NewRequest(method, c.baseURL+url, reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", c.apiToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	if result != nil {
+		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+			return fmt.Errorf("failed to decode response: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) CreateTemplate(template PostmarkTemplate) (int64, error) {
+	url := "/templates"
+	var postmarkResponse PostmarkResponse
+	if err := c.doRequest("POST", url, template, &postmarkResponse); err != nil {
+		return 0, err
+	}
+	if postmarkResponse.ErrorCode != 0 {
+		return 0, fmt.Errorf("failed to create template: %s", postmarkResponse.Message)
+	}
+	return postmarkResponse.TemplateID, nil
+}
+
+func (c *Client) UpdateTemplate(ID uint64, template PostmarkTemplate) error {
+	url := fmt.Sprintf("/templates/%d", ID)
+	var postmarkResponse PostmarkResponse
+	if err := c.doRequest("PUT", url, template, &postmarkResponse); err != nil {
+		return err
+	}
+	if postmarkResponse.ErrorCode != 0 {
+		return fmt.Errorf("failed to update template: %s", postmarkResponse.Message)
+	}
+	return nil
+}
+
+func (c *Client) DeleteTemplate(ID uint64) error {
+	url := fmt.Sprintf("/templates/%d", ID)
+	var postmarkResponse PostmarkResponse
+	if err := c.doRequest("DELETE", url, nil, &postmarkResponse); err != nil {
+		return err
+	}
+	if postmarkResponse.ErrorCode != 0 {
+		return fmt.Errorf("failed to delete template: %s", postmarkResponse.Message)
+	}
+	return nil
+}
+
+func (c *Client) GetTemplates() ([]PostmarkTemplateDetails, error) {
+	url := "/templates"
+	var postmarkResponse PostmarkTemplateListResponse
+	if err := c.doRequest("GET", url, nil, &postmarkResponse); err != nil {
+		return nil, err
+	}
+	return postmarkResponse.Templates, nil
+}
+
+func (c *Client) SendEmail(emailRequest EmailRequest) (*EmailResponse, error) {
+	url := "/email"
+	var emailResponse EmailResponse
+	if err := c.doRequest("POST", url, emailRequest, &emailResponse); err != nil {
+		return nil, err
+	}
+	return &emailResponse, nil
+}
+
+func main() {
+	client := NewClient("3cfe2f4a-8e58-4055-8c56-b4f690bbf9c1")
+
+
+	// Create a template
+	// template := PostmarkTemplate{
+	// 	Name:     "Test Template",
+	// 	Subject:  "Hello, {{name}}!",
+	// 	HtmlBody: "<html><body>Hello, {{name}}!</body></html>",
+	// 	TextBody: "Hello, {{name}}!",
+	// 	Active:   true,
+	// }
+	// templateID, err := client.CreateTemplate(template)
+	// if err != nil {
+	// 	log.Fatalf("Error creating template: %v", err)
+	// }
+	// fmt.Printf("Created template with ID: %d\n", templateID)
+
+	// Send an email
+	// email := EmailRequest{
+	// 	From:          "no-reply@staging.todaypay.tech",
+	// 		To:            "raghunath.tiwari+2@todaypay.me",
+	// 	Subject:  "Hello!",
+	// 	HtmlBody: "<html><body>Hello!</body></html>",
+	// 	TextBody: "Hello!",
+	// }
+	// emailResponse, err := client.SendEmail(email)
+	// if err != nil {
+	// 	log.Fatalf("Error sending email: %v", err)
+	// }
+	// fmt.Printf("Sent email to: %s\n", emailResponse.To)
+
+	templates, err := client.GetTemplates()
+	if err != nil {
+		log.Fatalf("Error getting templates: %v", err)
+	}
+
+	// Print template details
+	for _, template := range templates {
+		fmt.Printf("Template ID: %d, Name: %s, Subject: %s, Active: %t\n",
+			template.TemplateID, template.Name, template.Subject, template.Active)
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+)
+
+// Template represents a template structure for Postmark
+type Template struct {
+	TemplateID int64  `json:"templateID,omitempty"`
+	Name       string `json:"name"`
+	Subject    string `json:"subject"`
+	HtmlBody   string `json:"htmlBody"`
+	TextBody   string `json:"textBody"`
+	Alias      string `json:"alias,omitempty"`
+	Active     bool   `json:"active,omitempty"`
+}
+
+// TemplatesResponse represents the response from Postmark API for listing templates
+type TemplatesResponse struct {
+	Templates  []Template `json:"templates"`
+	TotalCount int        `json:"totalCount"`
+}
+
+// PostmarkResponse represents the response from Postmark API for create/update actions
+type PostmarkResponse struct {
+	TemplateID int64  `json:"templateID"`
+	ErrorCode  int    `json:"errorCode"`
+	Message    string `json:"message"`
+}
+
+// Email represents an email to be sent using Postmark
+type Email struct {
+	From          string            `json:"From"`
+	To            string            `json:"To"`
+	TemplateID    int64             `json:"TemplateId"`
+	TemplateModel map[string]string `json:"TemplateModel"`
+}
+
+// BatchEmailRequest represents a batch email request
+type BatchEmailRequest struct {
+	Messages []Email `json:"Messages"`
+}
+
+// BouncesResponse represents the response from Postmark API for listing bounces
+type BouncesResponse struct {
+	Bounces    []Bounce `json:"Bounces"`
+	TotalCount int      `json:"TotalCount"`
+}
+
+// Bounce represents a single bounce
+type Bounce struct {
+	ID          int64  `json:"ID"`
+	Type        string `json:"Type"`
+	Description string `json:"Description"`
+	Details     string `json:"Details"`
+	Email       string `json:"Email"`
+	BouncedAt   string `json:"BouncedAt"`
+	CanActivate bool   `json:"CanActivate"`
+	Subject     string `json:"Subject"`
+	MessageID   string `json:"MessageID"`
+}
+
+// CreateTemplate creates a new template in Postmark
+func CreateTemplate(apiToken string, template Template) (int64, error) {
+	url := "https://api.postmarkapp.com/templates"
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return 0, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var postmarkResponse PostmarkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&postmarkResponse); err != nil {
+		return 0, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if postmarkResponse.ErrorCode != 0 {
+		return 0, fmt.Errorf("failed to create template: %s", postmarkResponse.Message)
+	}
+
+	return postmarkResponse.TemplateID, nil
+}
+
+// GetTemplate retrieves a template by its ID
+func GetTemplate(apiToken string, templateID int64) (*Template, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", templateID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var template Template
+	if err := json.NewDecoder(resp.Body).Decode(&template); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &template, nil
+}
+
+// UpdateTemplate updates an existing template in Postmark
+func UpdateTemplate(apiToken string, template Template) error {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", template.TemplateID)
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var postmarkResponse PostmarkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&postmarkResponse); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if postmarkResponse.ErrorCode != 0 {
+		return fmt.Errorf("failed to update template: %s", postmarkResponse.Message)
+	}
+
+	return nil
+}
+
+// DeleteTemplate deletes a template in Postmark
+func DeleteTemplate(apiToken string, templateID int64) error {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates/%d", templateID)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// GetTemplates retrieves a list of all templates in Postmark
+func GetTemplates(apiToken string, offset, count int) ([]Template, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/templates?offset=%d&count=%d", offset, count)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var templatesResponse TemplatesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&templatesResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return templatesResponse.Templates, nil
+}
+
+// ValidateTemplate validates a template in Postmark
+func ValidateTemplate(apiToken string, template Template) error {
+	url := "https://api.postmarkapp.com/templates/validate"
+	jsonData, err := json.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to marshal template: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// SendBatchEmails sends a batch of emails using a template
+func SendBatchEmails(apiToken string, emails []Email) error {
+	url := "https://api.postmarkapp.com/email/batchWithTemplates"
+	batchRequest := BatchEmailRequest{Messages: emails}
+	jsonData, err := json.Marshal(batchRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal batch request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	return nil
+}
+
+// ListBounces retrieves a list of all bounces
+func ListBounces(apiToken string, offset, count int) ([]Bounce, error) {
+	url := fmt.Sprintf("https://api.postmarkapp.com/bounces?offset=%d&count=%d", offset, count)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Postmark-Server-Token", apiToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, bodyString)
+	}
+
+	var bouncesResponse BouncesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&bouncesResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return bouncesResponse.Bounces, nil
+}
+
+func main() {
+	apiToken := "3cfe2f4a-8e58-4055-8c56-b4f690bbf9c1"
+	// OTP:=  36194768
+
+	// Creating a template
+	// template := Template{
+	// 	Name:    "OTP Verification",
+	// 	Subject: "OTP Verification email",
+	// 	HtmlBody: `<!DOCTYPE html>
+	// 	<html lang="en">
+	// 	<head>
+	// 		<meta charset="UTF-8">
+	// 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	// 		<title>OTP Email</title>
+	// 		<style>
+	// 			body {
+	// 				font-family: Arial, sans-serif;
+	// 				background-color: #f4f4f4;
+	// 				margin: 0;
+	// 				padding: 0;
+	// 				color: #333;
+	// 			}
+	// 			.container {
+	// 				background-color: #fff;
+	// 				margin: 50px auto;
+	// 				padding: 20px;
+	// 				border-radius: 10px;
+	// 				box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+	// 				max-width: 600px;
+	// 				text-align: center;
+	// 			}
+	// 			h1 {
+	// 				color: #4CAF50;
+	// 			}
+	// 			p {
+	// 				line-height: 1.6;
+	// 			}
+	// 			.otp {
+	// 				font-size: 1.5em;
+	// 				font-weight: bold;
+	// 				background-color: #f9f9f9;
+	// 				border: 1px solid #ddd;
+	// 				padding: 10px;
+	// 				border-radius: 5px;
+	// 				display: inline-block;
+	// 				margin: 20px 0;
+	// 			}
+	// 			.footer {
+	// 				margin-top: 20px;
+	// 				font-size: 0.9em;
+	// 				color: #888;
+	// 			}
+	// 		</style>
+	// 	</head>
+	// 	<body>
+	// 		<div class="container">
+	// 			<h1>One Time Password</h1>
+	// 			<p>Please use the following OTP to verify your identity:</p>
+	// 			<p class="otp">{{.OTP}}</p>
+	// 			<p>If you did not request this OTP, please ignore this email.</p>
+	// 			<div class="footer">
+	// 				<p>Thanks,<br>{{.Company}}</p>
+	// 			</div>
+	// 		</div>
+	// 	</body>
+	// 	</html>`,
+	// 	TextBody: "Click the following link to reset your password: {{reset_link}}",
+	// }
+
+	// templateID, err := CreateTemplate(apiToken, template)
+	// if err != nil {
+	// 	log.Fatalf("Error creating template: %v\n", err)
+	// }
+	// fmt.Printf("Template created with ID: %d\n", templateID)
+
+	// Getting a template
+	// retrievedTemplate, err := GetTemplate(apiToken, templateID)
+	// if err != nil {
+	// 	log.Fatalf("Error getting template: %v\n", err)
+	// }
+	// fmt.Printf("Retrieved Template: %+v\n", retrievedTemplate)
+
+	// Updating a template
+	// retrievedTemplate.Subject = "Updated Subject"
+	// err = UpdateTemplate(apiToken, *retrievedTemplate)
+	// if err != nil {
+	// 	log.Fatalf("Error updating template: %v\n", err)
+	// }
+	// fmt.Println("Template updated successfully")
+
+	// Listing templates
+	// offset := 0
+	// count := 10
+	// templates, err := GetTemplates(apiToken, offset, count)
+	// if err != nil {
+	// 	log.Fatalf("Error listing templates: %v\n", err)
+	// }
+	// fmt.Printf("Total Templates: %d\n", len(templates))
+	// for _, t := range templates {
+	// 	fmt.Printf("ID: %d, Name: %s, Active: %t, Subject: %s\n", t.TemplateID, t.Name, t.Active, t.Subject)
+	// }
+
+	// Deleting a template
+	// err = DeleteTemplate(apiToken, 36188998)
+	// if err != nil {
+	// 	log.Fatalf("Error deleting template: %v\n", err)
+	// }
+	// fmt.Println("Template deleted successfully")
+
+	// Validating a template
+	// err = ValidateTemplate(apiToken, template)
+	// if err != nil {
+	// 	log.Fatalf("Error validating template: %v\n", err)
+	// }
+	// fmt.Println("Template validated successfully")
+
+	// Sending batch emails using a template
+	emails := []Email{
+		{
+			From:          "no-reply@staging.todaypay.tech",
+			To:            "raghunath.tiwari+2@todaypay.me",
+			TemplateID:    36194768,
+			TemplateModel: map[string]string{"OTP": "123123", "Company": "TodayPay"},
+		},
+		// {
+		// 	From:          "no-reply@staging.todaypay.tech",
+		// 	To:            "raghunath.tiwari+1@todaypay.me",
+		// 	TemplateID:    36194768,
+		// 	TemplateModel: map[string]string{"OTP": "123123", "Company": "TodayPay"},
+		// },
+	}
+	err := SendBatchEmails(apiToken, emails)
+	if err != nil {
+		log.Fatalf("Error sending batch emails: %v\n", err)
+	}
+	fmt.Println("Batch emails sent successfully")
+
+	// Listing bounces
+	// bounces, err := ListBounces(apiToken, offset, count)
+	// if err != nil {
+	// 	log.Fatalf("Error listing bounces: %v\n", err)
+	// }
+	// fmt.Printf("Total Bounces: %d\n", len(bounces))
+	// for _, b := range bounces {
+	// 	fmt.Printf("ID: %d, Type: %s, Description: %s, Email: %s, BouncedAt: %s\n",
+	// 		b.ID, b.Type, b.Description, b.Email, b.BouncedAt)
+	// }
+}
