@@ -1043,7 +1043,7 @@ func ListBounces(apiToken string, offset, count int) ([]Bounce, error) {
 }
 
 func main() {
-	apiToken := "3cfe2f4a-8e58-4055-8c56-b4f690bbf9c1"
+	apiToken := "past api token here"
 	// OTP:=  36194768
 
 	// Creating a template
